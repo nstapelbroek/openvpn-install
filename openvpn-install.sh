@@ -80,11 +80,35 @@ new_client () {
 	} > ~/"$1".ovpn
 }
 
+
+# CLI argument parsing
+HEADLESS="FALSE"
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+case $key in
+    -n|--no-interaction)
+    HEADLESS="TRUE"
+    shift
+    shift
+    ;;
+    *) 
+    POSITIONAL+=("$1")
+    shift
+    ;;
+esac
+done
+set -- "${POSITIONAL[@]}"
+
 if [[ -e /etc/openvpn/server/server.conf ]]; then
 	while :
 	do
 	clear
 		echo "Looks like OpenVPN is already installed."
+		if [[ "$HEADLESS" == "TRUE" ]]; then
+			exit 1
+		fi
 		echo
 		echo "What do you want to do?"
 		echo "   1) Add a new user"
@@ -205,81 +229,90 @@ if [[ -e /etc/openvpn/server/server.conf ]]; then
 		esac
 	done
 else
-	clear
-	echo "Welcome to this OpenVPN "road warrior" installer!"
-	echo
-	echo "I need to ask you a few questions before starting setup."
-	echo "You can use the default options and just press enter if you are ok with them."
-	# If system has a single IPv4, it is selected automatically. Else, ask the user
-	if [[ $(ip addr | grep inet | grep -v inet6 | grep -vEc '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}') -eq 1 ]]; then
-		ip=$(ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
-	else
-		number_of_ips=$(ip addr | grep inet | grep -v inet6 | grep -vEc '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+	if [[ "$HEADLESS" != "TRUE" ]]; then
+		clear
+		echo "Welcome to this OpenVPN "road warrior" installer!"
 		echo
-		echo "What IPv4 address should the OpenVPN server bind to?"
-		ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | nl -s ') '
-		read -p "IPv4 address [1]: " ip_number
-		until [[ -z "$ip_number" || "$ip_number" =~ ^[0-9]+$ && "$ip_number" -le "$number_of_ips" ]]; do
-			echo "$ip_number: invalid selection."
+		echo "I need to ask you a few questions before starting setup."
+		echo "You can use the default options and just press enter if you are ok with them."
+		# If system has a single IPv4, it is selected automatically. Else, ask the user
+		if [[ $(ip addr | grep inet | grep -v inet6 | grep -vEc '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}') -eq 1 ]]; then
+			ip=$(ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+		else
+			number_of_ips=$(ip addr | grep inet | grep -v inet6 | grep -vEc '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+			echo
+			echo "What IPv4 address should the OpenVPN server bind to?"
+			ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | nl -s ') '
 			read -p "IPv4 address [1]: " ip_number
-		done
-		[[ -z "$ip_number" ]] && ip_number="1"
-		ip=$(ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | sed -n "$ip_number"p)
-	fi
-	# If $IP is a private IP address, the server must be behind NAT
-	if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
+			until [[ -z "$ip_number" || "$ip_number" =~ ^[0-9]+$ && "$ip_number" -le "$number_of_ips" ]]; do
+				echo "$ip_number: invalid selection."
+				read -p "IPv4 address [1]: " ip_number
+			done
+			[[ -z "$ip_number" ]] && ip_number="1"
+			ip=$(ip addr | grep inet | grep -v inet6 | grep -vE '127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | sed -n "$ip_number"p)
+		fi
+		# If $IP is a private IP address, the server must be behind NAT
+		if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
+			echo
+			echo "This server is behind NAT. What is the public IPv4 address or hostname?"
+			get_public_ip=$(wget -4qO- "http://whatismyip.akamai.com/" || curl -4Ls "http://whatismyip.akamai.com/")
+			read -p "Public IPv4 address / hostname [$get_public_ip]: " public_ip
+			[ -z "$public_ip" ] && public_ip="$get_public_ip"
+		fi
 		echo
-		echo "This server is behind NAT. What is the public IPv4 address or hostname?"
-		get_public_ip=$(wget -4qO- "http://whatismyip.akamai.com/" || curl -4Ls "http://whatismyip.akamai.com/")
-		read -p "Public IPv4 address / hostname [$get_public_ip]: " public_ip
-		[ -z "$public_ip" ] && public_ip="$get_public_ip"
-	fi
-	echo
-	echo "Which protocol do you want for OpenVPN connections?"
-	echo "   1) UDP (recommended)"
-	echo "   2) TCP"
-	read -p "Protocol [1]: " protocol
-	until [[ -z "$protocol" || "$protocol" =~ ^[12]$ ]]; do
-		echo "$protocol: invalid selection."
+		echo "Which protocol do you want for OpenVPN connections?"
+		echo "   1) UDP (recommended)"
+		echo "   2) TCP"
 		read -p "Protocol [1]: " protocol
-	done
-	case "$protocol" in
-		1|"") 
-		protocol=udp
-		;;
-		2) 
-		protocol=tcp
-		;;
-	esac
-	echo
-	echo "What port do you want OpenVPN listening to?"
-	read -p "Port [1194]: " port
-	until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
-		echo "$port: invalid selection."
+		until [[ -z "$protocol" || "$protocol" =~ ^[12]$ ]]; do
+			echo "$protocol: invalid selection."
+			read -p "Protocol [1]: " protocol
+		done
+		case "$protocol" in
+			1|"") 
+			protocol=udp
+			;;
+			2) 
+			protocol=tcp
+			;;
+		esac
+		echo
+		echo "What port do you want OpenVPN listening to?"
 		read -p "Port [1194]: " port
-	done
-	[[ -z "$port" ]] && port="1194"
-	echo
-	echo "Which DNS do you want to use with the VPN?"
-	echo "   1) Current system resolvers"
-	echo "   2) 1.1.1.1"
-	echo "   3) Google"
-	echo "   4) OpenDNS"
-	echo "   5) Verisign"
-	read -p "DNS [1]: " dns
-	until [[ -z "$dns" || "$dns" =~ ^[1-5]$ ]]; do
-		echo "$dns: invalid selection."
+		until [[ -z "$port" || "$port" =~ ^[0-9]+$ && "$port" -le 65535 ]]; do
+			echo "$port: invalid selection."
+			read -p "Port [1194]: " port
+		done
+		[[ -z "$port" ]] && port="1194"
+		echo
+		echo "Which DNS do you want to use with the VPN?"
+		echo "   1) Current system resolvers"
+		echo "   2) 1.1.1.1"
+		echo "   3) Google"
+		echo "   4) OpenDNS"
+		echo "   5) Verisign"
 		read -p "DNS [1]: " dns
-	done
-	echo
-	echo "Finally, tell me a name for the client certificate."
-	read -p "Client name [client]: " unsanitized_client
-	# Allow a limited set of characters to avoid conflicts
-	client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
-	[[ -z "$client" ]] && client="client"
-	echo
-	echo "Okay, that was all I needed. We are ready to set up your OpenVPN server now."
-	read -n1 -r -p "Press any key to continue..."
+		until [[ -z "$dns" || "$dns" =~ ^[1-5]$ ]]; do
+			echo "$dns: invalid selection."
+			read -p "DNS [1]: " dns
+		done
+		echo
+		echo "Finally, tell me a name for the client certificate."
+		read -p "Client name [client]: " unsanitized_client
+		# Allow a limited set of characters to avoid conflicts
+		client=$(sed 's/[^0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-]/_/g' <<< "$unsanitized_client")
+		[[ -z "$client" ]] && client="client"
+		echo
+		echo "Okay, that was all I needed. We are ready to set up your OpenVPN server now."
+		read -n1 -r -p "Press any key to continue..."
+	else
+		# Headless defaults, will not work behind NAT
+		ip="$(curl -s -4 https://ifconfig.co/ip)"
+		protocol="udp"
+		port="1194"
+		dns=2
+		client="client"
+	fi
 	# If running inside a container, disable LimitNPROC to prevent conflicts
 	if systemd-detect-virt -cq; then
 		mkdir /etc/systemd/system/openvpn-server@server.service.d/ 2>/dev/null
