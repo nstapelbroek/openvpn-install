@@ -101,6 +101,11 @@ esac
 done
 set -- "${POSITIONAL[@]}"
 
+if [ -z "$PS1" ]; then
+	echo "Looks like this script is ran without an interactive shell. Auto-enabling the --no-interaction flag."
+	HEADLESS="TRUE"
+fi
+
 if [[ -e /etc/openvpn/server/server.conf ]]; then
 	while :
 	do
